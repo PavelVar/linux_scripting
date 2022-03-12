@@ -1,0 +1,214 @@
+#!/bin/bash
+
+echo "Task 1 start"
+
+#logfile="/home/pavel/logfile"
+file="/etc/ssh/sshd_config"
+
+echo "Making backup for sshd_config file"
+
+backup_sshd_config(){
+if [ -f ${file} ]
+then cp ${file} /home/pavel && echo "Backup complete" | tee -a ${1}
+else touch ${file} && echo "There were not sshd_config I created it myself" | tee -a ${1}
+fi
+}
+
+edit_sshd_config(){
+echo "Change PubkeyAuthentication string for PubkeyAuthentication yes"
+sed -i '/PubkeyAuthentication/d' ${file} && echo " -- deleted" | tee -a ${1}
+echo "PubkeyAuthentication yes" >> ${file} && echo "PubkeyAuthentication - done" | tee -a ${1}
+
+echo "Change PasswordAuthentication string for PasswordAuthentication yes"
+sed -i '/PasswordAuthentication/d' ${file} && echo " -- deleted" | tee -a ${logfile}
+echo "PasswordAuthentication yes" >> ${file} && echo "PasswordAuthentication - done" | tee -a ${1}
+
+
+echo "Change AuthorizedKeysFile string for AuthorizedKeysFile .ssh/authorized_keys" | tee -a ${1} 
+sed -i '/AuthorizedKeysFile/d' ${file} && echo " -- deleted" | tee -a ${1}
+echo "AuthorizedKeysFile .ssh/authorized_keys" >> ${file} && echo "AuthorizedKeysFile - done" | tee -a ${1}
+}
+
+reload_sshd(){
+reload sshd.service && echo "SSHD reloaded" | tee -a ${1}
+}
+
+echo "Task 2 start" | tee -a ${1}
+
+file="/etc/ssh/sshd_config"
+
+edit_root_login(){
+echo "Change PermitRootLogin to NO option" | tee -a ${1}
+sed -i '/PermitRootLogin/d' ${file} && echo " -- deleted" | tee -a ${1}
+echo "PermitRootLogin no" >> ${file} && echo "PermitRootLogin - done" | tee -a ${1}
+}
+
+configure_ssh_policy(){
+echo "Input port number to open:"
+read PNum
+iptables --append INPUT --protocol tcp --dport ${PNum} --jump ACCEPT && echo "TCP for port ${PNum} opened" | tee ${1}
+
+echo "Input ip to open ssh:" | tee -a ${1}
+read IPNum
+iptables --append INPUT --source ${IPNum} --jump ACCEPT && echo "TCP for ip ${IPNum} opened" | tee -a ${1}
+
+iptables --policy INPUT DROP && echo "Policy INPUT parameter set to DROP" | tee -a ${1}
+}
+
+
+echo "Task 3" | tee -a ${1}
+
+mounting_dvd(){
+
+echo "Type DVD ISO name, please:"
+read DVDname
+
+cd /mnt
+echo "Mounting DVD ISO" | tee -a ${1}
+mount ${DVDname} /mnt/ && echo " Mount -- done" | tee -a ${1}
+
+echo "Deleting all repos from our system" | tee -a ${1}
+rm -rf /etc/yum.repos.d/* && echo " Deletting repos -- done" | tee -a ${1}
+
+echo "Creating config file for repo" | tee -a ${1}
+touch /etc/yum.repos.d/CentOS-Linux-AppStream.repo
+echo "Add appstream"
+[appstream] name=${DVDname}
+baseurl=file:///mnt/AppStream/
+gpgcheck=1
+enabled=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial
+
+" >> /etc/yum.repos.d/Cent_OS-Linux-AppStream.repo 
+
+touch /etc/yum.repos.d/CentOS-Linux-BaseOS.repo
+echo "Add baseos"
+[baseos] name=${DVDname}
+baseurl=file:///mnt/BaseOs/
+gpgcheck=1
+enabled=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial
+
+" >> /etc/yum.repos.d/Cent_OS-Linux-BaseOS.repo && echo "Config file created" | tee -a ${1}
+}
+
+
+#!/bin/bash
+
+echo "Task 4 RAID LVM creation" | tee -a ${1}
+
+raid_creation(){
+echo "Enter disk 1 name"
+read Disk1
+echo "Enter disk 2 name"
+read Disk2
+echo "Enter disk 3 name"
+read Disk3
+echo "Enter mountpoint for raid"
+read MP
+#/lvg1
+echo "Installing mdadm" | tee -a ${1}
+yum install mdadm && echo " -- mdadm installed" | tee -a ${1}
+
+echo "fdisk starting" | tee -a ${1}
+fdisk /dev/${Disk1}
+fdisk /dev/${Disk2}
+fdisk /dev/${Disk3}
+
+
+echo "Creating md devices for disks b, c, d"
+mdadm --create --verbose /dev/md0 --level=5 --raid-devices=3 /dev/${Disk1}1 /dev/${Disk2}1 /dev/${Disk3}1 && echo " -- md devices created" | tee -a ${1}
+
+mdadm --detail /dev/md0 >> ${1}
+
+echo "Installing LVM packages" | tee -a ${1}
+yum install lvm2 && echo " -- installed" | tee -a ${1}
+
+echo "Creating physical volume using md0"
+pvcreate /dev/md0 && echo " --sde done" | tee -a ${1}
+
+echo "Takin drives to group" | tee -a ${logfile}
+vgcreate vg1 /dev/md0 && echo " --done" | tee -a ${1}
+
+echo "Logical Volume creating" | tee -a ${logfile}
+lvcreate -l 100%FREE -n lvg1 vg1 && echo " --done" | tee -a ${1}
+
+vgs -o +lv_size,lv_name | tee -a ${1}
+
+echo "Creating file system" | tee -a ${1}
+mkfs.ext4 /dev/vg1/lvg1 && echo " --created" | tee -a ${1}
+
+echo "Creating catalogue of mounting points" | tee -a ${1}
+mkdir ${MP} && echo " -- created" | tee -a ${1}
+
+echo "Mounting the created filesystem" | tee -a ${1}
+mount /dev/vg1/lvg1 /lvg1 ${MP} && echo " --done" | tee -a ${1}
+
+echo "Add entry to fstab" | tee -a ${1}
+echo "/dev/vg1/lvg1 ${MP}	ext4	defaults	0 0" >> /etc/fstab && echo " -- done" | tee -a ${1}
+
+reboot
+
+df -h >> ${1}
+
+}
+
+create_xfs(){
+echo "Umount ext4" | tee -a ${1}
+umount /dev/vg1/lvg1 /lvg1 && " --done" | tee -a ${1}
+
+echo "Creating XFS file system" | tee -a ${1}
+mkfs.xfs /dev/vg1/lvg1 && echo "done" | tee -a ${1}
+
+echo "Mounting XFS file system" | tee -a ${1}
+mount -t xfs /dev/vg1/lvg1 /lvg1 && echo " --mount done" | tee -a ${1}
+df -hT /lvg1 | tee -a ${1}
+
+}
+
+
+echo "Task 8" | tee -a ${1}
+
+creating_nfs(){
+echo "Input IP"
+read IPS
+
+echo  "Installing nfs-utils" | tee -a ${1}
+dnf install nfs-utils && ech0 " --done" | tee -a ${1}
+
+echo "Starting nfs-server" | tee -a ${1}
+systemctl start nfs-server.service && echo " --done" | tee -a ${1}
+systemctl enable nfs-server.service && echo " --done" | tee -a ${1}
+systemctl status nfs-server.servise >> ${1}
+
+echo "Handling firewalls" | tee -a ${1}
+firewall-cmd --permanent --add-port=111/tcp && echo "port 111 done" | tee -a ${1}
+firewall-cmd --permanent --add-port=2048/tcp && echo "port 20048 done" | tee -a ${1}
+firewall-cmd --permanent --zone+public --add-service=nfs && echo "public nfs done" | tee -a ${1}
+firewall-cmd --permanent --zone=public --add-service=mountd && echo "public mountd done" | tee -a ${1}
+firewall-cmd --permanent --zone=public --add-service=rpc-bind && echo rpc-bind done" | tee -a ${1}
+firewall-cmd --reload
+
+echo "Creating shared directory" | tee -a ${1}
+mkdir -p ${MP} && " --done" | tee -a ${1}
+chmod -R 777 ${MP} && "Rights  done" | tee -a ${1}
+
+echo "${MP} ${IPS} (rw,sync,no_root_squash,no_all_squash)" >> /etc/exports && echo "IP access to nfs done" | tee -a ${1}
+
+echo "Applying nfs settings"
+exportfs -a && echo " --done" | tee -a ${1}
+
+echo "Restarting nfs-server" | tee -a ${1}
+systemctl restart nfs-server
+
+} 
+
+backup_sshd_config
+edit_sshd_config
+reload_sshd
+edit_root_login
+configure_ssh_policy
+mounting_dvd
+raid_creation
+create_xfs
+creating_nfs
